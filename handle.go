@@ -9,7 +9,7 @@ import (
 
 type CallbackConnect func(*Handle, bool, error)
 type CallbackDisconnect func(*Handle, error)
-type CallbackRead func(*Handle, []byte, int) bool
+type CallbackRead func(*Handle, []byte, int)
 
 type NetPacket struct {
 	PacketSize int
