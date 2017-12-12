@@ -1,14 +1,15 @@
 package net
 
-import "net"
-import "sync"
-import "container/list"
+import (
+	"container/list"
+	"fmt"
+	"net"
+	"sync"
+)
 
 type Tcp struct {
-	conn       net.Conn
-	listener   net.Listener
-	addr       string
-	islistener bool
+	listener net.Listener
+	addr     string
 
 	OnConnectResult CallbackConnect
 	OnDisconnect    CallbackDisconnect
@@ -17,45 +18,35 @@ type Tcp struct {
 	handleList      list.List
 }
 
-func CreateTcp(islistener bool, addr string, onConnect CallbackConnect, onDisconnect CallbackDisconnect) *Tcp {
-	tcp := &Tcp{
-		addr:       addr,
-		islistener: islistener,
-
-		OnConnectResult: onConnect,
-		OnDisconnect:    onDisconnect,
-
-		acceptChan: make(chan *Handle, 1000),
-	}
+func NewTcp() *Tcp {
+	tcp := &Tcp{}
 	return tcp
 }
 
-func (t *Tcp) Start() error {
-	if t.islistener == true {
-		return t.startListen()
-	} else {
-		t.startConnect()
+func (t *Tcp) WhenConnected(cb CallbackConnect) *Tcp {
+	t.OnConnectResult = cb
+	return t
+}
+
+func (t *Tcp) WhenDisconnected(cb CallbackDisconnect) *Tcp {
+	t.OnDisconnect = cb
+	return t
+}
+
+func (t *Tcp) Listen(port int) error {
+	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
+	if err != nil {
+		return err
 	}
+	t.acceptChan = make(chan *Handle, 1000)
+
+	t.startAccept(listener)
+
 	return nil
 }
 
-func (t *Tcp) Stop() {
-	for e := t.handleList.Front(); e != nil; {
-		next := e.Next()
-		h := e.Value.(*Handle)
-		h.Close()
-		e = next
-	}
-
-	if t.islistener {
-		t.listener.Close()
-	}
-
-	t.waitAccept.Wait()
-}
-
-func (t *Tcp) startConnect() {
-	conn, err := net.Dial("tcp", t.addr)
+func (t *Tcp) Connect(addr string) {
+	conn, err := net.Dial("tcp", addr)
 	if err != nil {
 		t.OnConnectResult(nil, false, err)
 		return
@@ -66,15 +57,20 @@ func (t *Tcp) startConnect() {
 	h.startLoop()
 }
 
-func (t *Tcp) startListen() error {
-	listener, err := net.Listen("tcp", t.addr)
-	if err != nil {
-		return err
+func (t *Tcp) Close() {
+	for e := t.handleList.Front(); e != nil; {
+		next := e.Next()
+		h := e.Value.(*Handle)
+		h.Close()
+		e = next
 	}
 
-	t.startAccept(listener)
+	if t.listener != nil {
+		t.listener.Close()
+	}
 
-	return nil
+	t.waitAccept.Wait()
+	t.listener = nil
 }
 
 func (t *Tcp) startAccept(listener net.Listener) {

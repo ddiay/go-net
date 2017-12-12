@@ -109,9 +109,13 @@ func (h *Handle) readLoop() {
 			if !ok {
 				return
 			}
-			if netPacket.PacketSize > 0 {
-				var pos int
-				needReadSize := netPacket.PacketSize
+			var pos, needReadSize int
+			if netPacket.PacketSize <= 0 {
+				needReadSize = len(netPacket.Buffer)
+			} else {
+				needReadSize = netPacket.PacketSize
+			}
+			if needReadSize > 0 {
 				for {
 					numReceived, err := h.conn.Read(netPacket.Buffer[pos:needReadSize])
 					if err != nil {
@@ -124,8 +128,8 @@ func (h *Handle) readLoop() {
 					}
 					pos += numReceived
 					needReadSize -= numReceived
-					if pos == netPacket.PacketSize {
-						netPacket.OnRead(h, netPacket.Buffer, netPacket.PacketSize)
+					if netPacket.PacketSize <= 0 || pos == netPacket.PacketSize {
+						netPacket.OnRead(h, netPacket.Buffer, pos)
 						break
 					}
 				}
