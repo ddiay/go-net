@@ -2,7 +2,6 @@ package net
 
 import (
 	"container/list"
-	"fmt"
 	"net"
 	"sync"
 )
@@ -33,8 +32,8 @@ func (t *Tcp) WhenDisconnected(cb CallbackDisconnect) *Tcp {
 	return t
 }
 
-func (t *Tcp) Listen(port int) error {
-	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
+func (t *Tcp) Listen(addr string) error {
+	listener, err := net.Listen("tcp", addr)
 	if err != nil {
 		return err
 	}
