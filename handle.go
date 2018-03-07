@@ -2,7 +2,8 @@ package net
 
 import (
 	"container/list"
-	"fmt"
+	"encoding/binary"
+	"errors"
 	"net"
 	"sync"
 )
@@ -23,16 +24,28 @@ type Handle struct {
 	sendPacketChan    chan *NetPacket
 	onConnectResult   CallbackConnect
 	onDisconnect      CallbackDisconnect
+	onRead            CallbackRead
 	waitGroup         sync.WaitGroup
 	handleListElement *list.Element
 	handleList        *list.List
 }
 
-func createHandle(conn net.Conn, handleList *list.List, onConnectResult CallbackConnect, onDisconnect CallbackDisconnect) *Handle {
+func onReadHead(h *Handle, data []byte, size int) {
+	packetSize := int(binary.LittleEndian.Uint32(data[:4]))
+	h.ReadSize(packetSize, onReadBody)
+}
+
+func onReadBody(h *Handle, data []byte, size int) {
+	h.onRead(h, data, size)
+	h.ReadSize(4, onReadBody)
+}
+
+func createHandle(conn net.Conn, handleList *list.List, onConnectResult CallbackConnect, onDisconnect CallbackDisconnect, onRead CallbackRead) *Handle {
 	h := &Handle{
 		conn:            conn,
 		onConnectResult: onConnectResult,
 		onDisconnect:    onDisconnect,
+		onRead:          onRead,
 		netPacketChan:   make(chan *NetPacket, 5),
 		sendPacketChan:  make(chan *NetPacket, 5),
 	}
@@ -43,7 +56,21 @@ func createHandle(conn net.Conn, handleList *list.List, onConnectResult Callback
 	return h
 }
 
-func (h *Handle) TryRead(buffer []byte, size int, onRead CallbackRead) {
+func (h *Handle) Read(onRead CallbackRead) {
+	buf := make([]byte, 4096)
+	h.ReadToBuffer(buf, 0, onRead)
+}
+
+func (h *Handle) ReadSize(size int, onRead CallbackRead) {
+	if size > 0 {
+		buf := make([]byte, size)
+		h.ReadToBuffer(buf, size, onRead)
+	} else {
+		h.Read(onRead)
+	}
+}
+
+func (h *Handle) ReadToBuffer(buffer []byte, size int, onRead CallbackRead) {
 	if buffer == nil || len(buffer) < size {
 		return
 	}
@@ -55,13 +82,18 @@ func (h *Handle) TryRead(buffer []byte, size int, onRead CallbackRead) {
 	h.netPacketChan <- netPacket
 }
 
-func (h *Handle) TrySend(buffer []byte, size int) {
-	if buffer == nil || len(buffer) < size {
+func (h *Handle) Send(data []byte) {
+	if data == nil {
 		return
 	}
+	headSize := len(data)
+	packetSize := 4 + headSize
+	packet := make([]byte, packetSize)
+	binary.LittleEndian.PutUint32(packet, uint32(headSize))
+	copy(packet[4:], data)
 	netPacket := &NetPacket{
-		PacketSize: size,
-		Buffer:     buffer,
+		PacketSize: packetSize,
+		Buffer:     packet,
 	}
 	h.sendPacketChan <- netPacket
 }
@@ -83,6 +115,7 @@ func (h *Handle) removeFromList() {
 }
 
 func (h *Handle) startLoop() {
+	h.ReadSize(4, onReadHead)
 	h.waitGroup.Add(1)
 	go func() {
 		defer h.waitGroup.Done()
@@ -123,7 +156,7 @@ func (h *Handle) readLoop() {
 						return
 					}
 					if numReceived <= 0 {
-						fmt.Println("numReceived value <= 0")
+						disconnectErr = errors.New("numReceived value <= 0")
 						return
 					}
 					pos += numReceived

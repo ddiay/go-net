@@ -12,24 +12,18 @@ type Tcp struct {
 
 	OnConnectResult CallbackConnect
 	OnDisconnect    CallbackDisconnect
+	OnRead          CallbackRead
 	acceptChan      chan *Handle
 	waitAccept      sync.WaitGroup
 	handleList      list.List
 }
 
-func NewTcp() *Tcp {
+func NewTcp(onConnect CallbackConnect, onDisconnect CallbackDisconnect, onRead CallbackRead) *Tcp {
 	tcp := &Tcp{}
+	tcp.OnConnectResult = onConnect
+	tcp.OnDisconnect = onDisconnect
+	tcp.OnRead = onRead
 	return tcp
-}
-
-func (t *Tcp) WhenConnected(cb CallbackConnect) *Tcp {
-	t.OnConnectResult = cb
-	return t
-}
-
-func (t *Tcp) WhenDisconnected(cb CallbackDisconnect) *Tcp {
-	t.OnDisconnect = cb
-	return t
 }
 
 func (t *Tcp) Listen(addr string) error {
@@ -38,7 +32,6 @@ func (t *Tcp) Listen(addr string) error {
 		return err
 	}
 	t.acceptChan = make(chan *Handle, 1000)
-
 	t.startAccept(listener)
 
 	return nil
@@ -51,7 +44,7 @@ func (t *Tcp) Connect(addr string) {
 		return
 	}
 
-	h := createHandle(conn, &t.handleList, t.OnConnectResult, t.OnDisconnect)
+	h := createHandle(conn, &t.handleList, t.OnConnectResult, t.OnDisconnect, t.OnRead)
 	t.OnConnectResult(h, true, nil)
 	h.startLoop()
 }
@@ -83,7 +76,7 @@ func (t *Tcp) startAccept(listener net.Listener) {
 		}
 		t.startAccept(listener)
 
-		h := createHandle(conn, &t.handleList, t.OnConnectResult, t.OnDisconnect)
+		h := createHandle(conn, &t.handleList, t.OnConnectResult, t.OnDisconnect, t.OnRead)
 		h.onConnectResult(h, true, nil)
 		h.startLoop()
 	}()
